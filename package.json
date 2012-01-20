@@ -1,0 +1,18 @@
+{
+  "name"            : "ljsnarf",
+  "description"     : "Back up your Livejournal data to local json files.",
+  "main"            : "ljsnarf",
+  "version"         : "0.1.0",
+  "keywords"        : ["livejournal", "lj", "api" ],
+  "author"          : "C J Silverio <ceejceej@gmail.com>",
+  "dependencies"    : {
+  						'chainable-request': "0.1.x",
+                        'async': "0.1.x",
+                        'js-yaml': "0.3.x",
+                        'winston': "0.5.x",
+                        'xmlrpc': "0.9.x", 
+                      },
+  "repository"      : { "type": "git",
+                        "url" : "git://github.com/ceejbot/ljsnarf.git" },
+  "bugs"            : "http://github.com/ceejbot/ljsnarf/issues"
+}
