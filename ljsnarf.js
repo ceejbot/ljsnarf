@@ -8,24 +8,23 @@ var
 	requester   = require('chainable-request').chainableRequest,
 	url         = require('url'),
 	util        = require('util'),
-	winston     = require('winston'),
-	xmlrpc      = require('xmlrpc');
+	winston     = require('winston');
 
 require('js-yaml');
 
 var VERSION = '0.1.2';
-var USERAGENT = { 'User-Agent': 'ljmigrate ' + VERSION };
+var USERAGENT = { 'User-Agent': 'ljsnarf ' + VERSION };
 
 // lj's time format: 2004-08-11 13:38:00
 var ljTimeFormat = '%Y-%m-%d %H:%M:%S';
-var apipath = '/interface/xmlrpc';
+var apipath = '/interface/xmlrpc'; // unused
 var flatpath = '/interface/flat';
 
 // set up logging
 var logger = new (winston.Logger)({
 	transports: [
 		new (winston.transports.Console)({ colorize: true }),
-		new (winston.transports.File)({ filename: 'ljmigrate.log', level: 'info', timestamps: true, colorize: false })
+		new (winston.transports.File)({ filename: 'ljsnarf.log', level: 'info', timestamps: true, colorize: false })
 	]
 });
 
@@ -83,20 +82,7 @@ Account.prototype.requester = function()
 }
 
 //------------------------------------------------------------------------------
-// XML-RPC, challenge/response, and other LJ communication plumbing
-
-Account.prototype.rpcclient = function()
-{
-	if (this.client === undefined)
-	{
-		this.client = xmlrpc.createClient({
-				host: this.host,
-				port: this.port,
-				path: apipath
-		});
-	}
-	return this.client;
-};
+// Flat API, challenge/response, and other LJ communication plumbing
 
 Account.prototype.handleFlatResponse = function(input)
 {
@@ -165,40 +151,7 @@ Account.prototype.makeFlatAPICall = function(method, params, callback)
 	});
 };
 
-
 //------------------------------------------------------------------------------
-// Ask for a challenge from the server & calculate a response.
-// Return the response ready be used in the next API call.
-Account.prototype.doChallenge = function(callback)
-{
-	var self = this;
-	self.rpcclient().methodCall('LJ.XMLRPC.getchallenge', [], function (error, response)
-	{
-		var result = {
-			'auth_method': 'challenge',
-			'auth_challenge': response['challenge'],
-			'auth_response': self.respondToChallenge(response['challenge'])
-		};
-		callback(result);
-	});
-};
-
-// Params must be a hash.
-Account.prototype.makeRPCCall = function(method, params, callback)
-{
-	logger.info("calling LJ.XMLRPC."+method);
-	var self = this;
-	this.doChallengeFlat(function(challenge)
-	{
-		params.extend(challenge);
-		self.rpcclient().methodCall('LJ.XMLRPC.' + method, [params], function (err, value)
-		{
-			callback(value);
-		});
-	});
-};
-//------------------------------------------------------------------------------
-
 
 Account.prototype.makeSession = function(callback)
 {
@@ -649,7 +602,7 @@ if (config.source.port === undefined)
 	config.source.port = 80;
 
 var account = new Account(config.source);
-logger.info("---------- ljmigrate run started");
+logger.info("---------- ljsnarf run started");
 logger.info("Version: " + VERSION);
 logger.info('source account: ' + account.journal + '@' + account.host);
 

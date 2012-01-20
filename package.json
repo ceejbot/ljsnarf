@@ -10,7 +10,6 @@
                         'async': "0.1.x",
                         'js-yaml': "0.3.x",
                         'winston': "0.5.x",
-                        'xmlrpc': "0.9.x", 
                       },
   "repository"      : { "type": "git",
                         "url" : "git://github.com/ceejbot/ljsnarf.git" },
