@@ -132,7 +132,7 @@ Account.prototype.doChallengeFlat = function(callback)
 // Params must be a hash.
 Account.prototype.makeFlatAPICall = function(method, params, callback)
 {
-	logger.info("making flat API call with mode: ", method);
+	// logger.debug("making flat API call with mode: ", method);
 	var self = this;
 	this.doChallengeFlat(function(challenge)
 	{
@@ -207,69 +207,39 @@ Account.prototype.metadataFileForWrite = function(fname, callback)
 
 //------------------------------------------------------------------------------
 
-//------------------------------------------------------------------------------
-
 Account.prototype.getSyncItems = function(lastsync, callback)
 {
 	var self = this;
-	var params = {
-		'username': self.user,
-		'ver': 1,
-		'lastsync': '2011-10-02 15:32:31'
-	};
 	if ((lastsync.date !== undefined) && (lastsync.date.length > 0))
 		syncdate = lastsync.date;
 	else
 		syncdate = '';
+		
+	var params = {
+		mode : 'syncitems',
+		ver: 1,
+		lastsync: syncdate,
+		user : self.user,
+	};
 
-	self.requester().
-		content_type('application/x-www-form-urlencoded').
-		body({'mode': 'getchallenge'}).
-		post('/interface/flat').
-		on('reply', function(response, body)
+	self.makeFlatAPICall('syncitems', params, function(data)
 	{
-		data = self.handleFlatResponse(body);
-		if (data.errmsg !== undefined)
-			return callback(data.errmsg);
+		// Massage the data into a more useful structure.
+		var results = {};
+		results['sync_count'] = data['sync_count']; // how many in this pass
+		results['sync_total'] = data['sync_total']; // how many total
+		results['sync_items'] = [];
 		
-		challenge = data['challenge'];
-		challengeResponse = self.respondToChallenge(challenge);
-		
-		var params = {
-			mode : 'syncitems',
-			ver: 1,
-			lastsync: syncdate,
-			user : self.user,
-			auth_method: 'challenge',
-			auth_challenge: challenge,
-			auth_response: challengeResponse
-		};
-		self.requester().
-			content_type('application/x-www-form-urlencoded').
-			body(params).
-			post('/interface/flat').
-			on('reply', function(response, body)
+		for (var i=1; i <= results.sync_count; i++)
 		{
-			data = self.handleFlatResponse(body);
-
-			// Massage the data into a more useful structure.
-			var results = {};
-			results['sync_count'] = data['sync_count']; // how many in this pass
-			results['sync_total'] = data['sync_total']; // how many total
-			results['sync_items'] = [];
-			
-			for (var i=1; i <= results.sync_count; i++)
-			{
-				results.sync_items.push({
-					id: data['sync_'+i+'_item'],
-					action: data['sync_'+i+'_action'],
-					time: data['sync_'+i+'_time'],
-				});
-			}
-			callback(results);
-		});
-	})	
-
+			results.sync_items.push({
+				id: data['sync_'+i+'_item'],
+				action: data['sync_'+i+'_action'],
+				time: data['sync_'+i+'_time'],
+			});
+		}
+		callback(results);
+	});
 };
 
 Account.prototype.getOneEvent = function(itemid, callback)
@@ -277,52 +247,15 @@ Account.prototype.getOneEvent = function(itemid, callback)
 	var self = this;
 	itemid = itemid.replace(/^L-/, '');
 	itemid = itemid.replace(/^C-/, '');
-
-	self.requester().
-		content_type('application/x-www-form-urlencoded').
-		body({'mode': 'getchallenge'}).
-		post('/interface/flat').
-		on('reply', function(response, body)
-	{
-		data = self.handleFlatResponse(body);
-		if (data.errmsg !== undefined)
-			return callback(data.errmsg);
 		
-		challenge = data['challenge'];
-		challengeResponse = self.respondToChallenge(challenge);
-		
-		if ((itemid.slice(0, 2) == 'L-') || (itemid.slice(0, 2) == 'C-'))
-			itemid = itemid.slice(2, -1);
-		
-		var params = {
-			mode : 'getevents',
-			username: self.user,
-			user: self.user,
-			ver: 1,
-			selecttype: "one",
-			itemid: itemid,
-			auth_method: 'challenge',
-			auth_challenge: challenge,
-			auth_response: challengeResponse
-		};
-		self.requester().
-			content_type('application/x-www-form-urlencoded').
-			body(params).
-			post('/interface/flat').
-			on('reply', function(response, body)
-		{
-			data = self.handleFlatResponse(body);
-			callback(null, data);
-		});
-	})	
-
-};
-
-Account.prototype.fetchItem = function(item, callback)
-{
-	var self = this;
-	// logger.debug('fetching item:', item);
-	self.getOneEvent(item.id, function(err, data)
+	var params = {
+		username: self.user,
+		user: self.user,
+		ver: 1,
+		selecttype: "one",
+		itemid: itemid,
+	};
+	self.makeFlatAPICall('getevents', params, function(data)
 	{
 		// Process the flat response into something usable.
 		// event.events_count: count of events in this response; always 1
@@ -339,14 +272,24 @@ Account.prototype.fetchItem = function(item, callback)
 		var propcount = data.prop_count;
 		for (var i=1; i <= propcount; i++)
 			entry.properties[data['prop_'+i+'_name']] = data['prop_'+i+'_value'];
-	
+
+		callback(entry);
+	});
+};
+
+Account.prototype.fetchItem = function(item, callback)
+{
+	var self = this;
+	// logger.debug('fetching item:', item);
+	self.getOneEvent(item.id, function(entry)
+	{
 		var location = url.parse(entry.url);
 		var pieces = location.pathname.split('/');
 		var basename = pieces[pieces.length - 1].replace('.html', '.json');
 		var fname = path.join(self.postspath(), basename);
 		fs.writeFile(fname, JSON.stringify(entry, null, true), 'utf8', function(err)
 		{
-			logger.info('wrote entry '+basename);
+			logger.info('backed up entry '+basename);
 			callback(err, entry);
 		});		
 	});
@@ -368,6 +311,7 @@ Account.prototype.fetchSyncItems = function(lastsync, count, callback)
 		var totalToFetch = itemsSinceLastSync.sync_total;
 		var syncitems = itemsSinceLastSync.sync_items;
 		
+		// TODO: fetch them in groups to minimize network overhead.
 		var pending = -1;
 		for (var i=0; i < syncitems.length; i++)
 		{
@@ -408,17 +352,16 @@ Account.prototype.backupJournalEntries = function(callback)
 			});
 		};
 		
-		var continuer = function(syncdata, count, remaining, callback)
+		var continuer = function(syncdata, count, remaining)
 		{
 			if (remaining <= 0)
-				return recordResults(syncdata, count);
-			self.fetchSyncItems(syncdata, count, continuer);
+				recordResults(syncdata, count);
+			else
+				self.fetchSyncItems(syncdata, count, continuer);
 		};		
 		self.fetchSyncItems(lastsync, 0, continuer);
 	});
 };
-
-
 
 //------------------------------------------------------------------------------
 
@@ -594,9 +537,6 @@ Account.prototype.writeLastSync = function(lastsync, callback)
 
 //------------------------------------------------------------------------------
 
-
-//------------------------------------------------------------------------------
-
 var config = require('./config.yml').shift();
 if (config.source.port === undefined)
 	config.source.port = 80;
@@ -631,7 +571,6 @@ async.parallel(
 ],
 function(err, results)
 {
-	console.log(results);
 	var elapsed = (new Date() - start)/1000;
 	logger.info(util.format('Done; %d seconds elapsed.', elapsed));
 });
