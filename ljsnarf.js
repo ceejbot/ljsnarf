@@ -238,9 +238,13 @@ Account.prototype.getSyncItems = function(lastsync, callback)
 				time: data['sync_'+i+'_time'],
 			});
 		}
+		
 		callback(results);
 	});
 };
+
+//------------------------------------------------------------------------------
+// sync items one at a time
 
 Account.prototype.getOneEvent = function(itemid, callback)
 {
@@ -257,9 +261,6 @@ Account.prototype.getOneEvent = function(itemid, callback)
 	};
 	self.makeFlatAPICall('getevents', params, function(data)
 	{
-		// Process the flat response into something usable.
-		// event.events_count: count of events in this response; always 1
-		// the aspects are named 'events_N_aspect'
 		var entry = {};
 		entry.itemid = data['events_1_itemid'];
 		entry.anum = data['events_1_anum'];
@@ -280,7 +281,7 @@ Account.prototype.getOneEvent = function(itemid, callback)
 Account.prototype.fetchItem = function(item, callback)
 {
 	var self = this;
-	// logger.debug('fetching item:', item);
+
 	self.getOneEvent(item.id, function(entry)
 	{
 		var location = url.parse(entry.url);
@@ -295,10 +296,10 @@ Account.prototype.fetchItem = function(item, callback)
 	});
 };
 
-Account.prototype.fetchSyncItems = function(lastsync, count, callback)
+Account.prototype.fetchSyncItemsSingly = function(lastsync, count, callback)
 {
 	var self = this;
-	logger.info("fetching sync items starting with " + JSON.stringify(lastsync));
+	logger.info("fetching sync items one at a time, starting with " + JSON.stringify(lastsync));
 	self.getSyncItems(lastsync, function(itemsSinceLastSync)
 	{
 		if ((itemsSinceLastSync === null) || (itemsSinceLastSync.sync_items.length == 0))
@@ -330,6 +331,116 @@ Account.prototype.fetchSyncItems = function(lastsync, count, callback)
 	});
 };
 
+//------------------------------------------------------------------------------
+// sync items in batches
+
+Account.prototype.getEventsSince = function(sinceDate, callback)
+{
+	var self = this;
+	var params = {
+		username: self.user,
+		user: self.user,
+		ver: 1,
+		selecttype: 'syncitems',
+		lastsync: sinceDate.date,
+		lineendings: 'unix'
+	};
+	
+	self.makeFlatAPICall('getevents', params, function(data)
+	{
+		// Process the flat response into something usable.
+		// data['events_count']: count of events in this response; always 1
+		// the aspects are named 'events_N_aspect'
+		var count = data['events_count'];
+		var propcount = data['prop_count'];
+		
+		var entries = {};
+		for (var i=1; i <= count; i++)
+		{
+			var entry = {};
+			entry.itemid = data['events_'+i+'_itemid'];
+			entry.anum = data['events_'+i+'_anum'];
+			entry.url = data['events_'+i+'_url'];
+			entry.time = data['events_'+i+'_eventtime'];
+			entry.subject = data['events_'+i+'_subject'];
+			entry.body = unescape(data['events_'+i+'_event']);
+			entry.properties = {};
+			
+			entries[entry.itemid] = entry;
+		}
+		
+		for (var i=1; i <= propcount; i++)
+		{
+			// prop_264_itemid, prop_264_name, prop_264_value
+			var entry = entries[data['prop_'+i+'_itemid']];
+			entry.properties[data['prop_'+i+'_name']] = data['prop_'+i+'_value'];
+		}
+		
+		result = []
+		for (k in entries)
+		{
+			if (k === 'extend')
+				continue;			
+			result.push(entries[k]);
+		}
+		
+		callback(result);
+	});
+};
+
+Account.prototype.fetchBatch = function(lastsync, callback)
+{
+	var self = this;
+	
+	self.getEventsSince(lastsync, function(entries)
+	{
+		var pending = entries.length - 1;
+		for (var i=0; i < entries.length; i++)
+		{
+			var entry = entries[i];
+
+			if ((lastsync.date < entry.time) || (lastsync.date === ''))
+				lastsync.date = entry.time;
+		
+			var location = url.parse(entry.url);
+			var pieces = location.pathname.split('/');
+			var basename = pieces[pieces.length - 1].replace('.html', '.json');
+			var fname = path.join(self.postspath(), basename);
+
+			logger.info('backing up entry '+basename);
+			fs.writeFile(fname, JSON.stringify(entry, null, true), 'utf8', function(err)
+			{
+				pending-- || callback(err, entries, lastsync.date);
+			});
+		}
+		pending-- || callback(null, entries, lastsync.date);
+	});
+};
+
+Account.prototype.fetchSyncItems = function(lastsync, count, callback)
+{
+	var self = this;
+	self.getSyncItems(lastsync, function(itemsSinceLastSync)
+	{
+		if ((itemsSinceLastSync === null) || (itemsSinceLastSync.sync_items.length == 0))
+		{
+			logger.info('nothing to update');
+			return callback(lastsync, count, 0);
+		}
+			
+		var newentries = 0;
+		var totalToFetch = itemsSinceLastSync.sync_total;
+		var syncitems = itemsSinceLastSync.sync_items;
+		
+		self.fetchBatch(lastsync, function(err, entries, latest)
+		{
+			count += entries.length;
+			lastsync.date = latest;
+			callback(lastsync, count, totalToFetch - entries.length);
+		});
+	});
+};
+
 Account.prototype.backupJournalEntries = function(callback)
 {
 	var self = this;
@@ -341,6 +452,7 @@ Account.prototype.backupJournalEntries = function(callback)
 
 		var recordResults = function(syncdata, newentries)
 		{
+			console.log('entering recordResults()');
 			self.writeLastSync(syncdata, function()
 			{
 				logger.info("Local json archive complete.")
@@ -358,7 +470,7 @@ Account.prototype.backupJournalEntries = function(callback)
 				recordResults(syncdata, count);
 			else
 				self.fetchSyncItems(syncdata, count, continuer);
-		};		
+		};
 		self.fetchSyncItems(lastsync, 0, continuer);
 	});
 };
