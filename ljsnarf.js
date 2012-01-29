@@ -1,6 +1,5 @@
 var 
 	// argv        = require('optimist').argv,
-	async       = require('async'),
 	crypto      = require('crypto'),
 	fs          = require('fs'),
 	http        = require('http'),
@@ -19,14 +18,6 @@ var USERAGENT = { 'User-Agent': 'ljsnarf ' + VERSION };
 var ljTimeFormat = '%Y-%m-%d %H:%M:%S';
 var apipath = '/interface/xmlrpc'; // unused
 var flatpath = '/interface/flat';
-
-// set up logging
-var logger = new (winston.Logger)({
-	transports: [
-		new (winston.transports.Console)({ colorize: true }),
-		new (winston.transports.File)({ filename: 'ljsnarf.log', level: 'info', timestamps: true, colorize: false })
-	]
-});
 
 //------------------------------------------------------------------------------
 // array update/extend.
@@ -210,8 +201,8 @@ Account.prototype.metadataFileForWrite = function(fname, callback)
 Account.prototype.getSyncItems = function(lastsync, callback)
 {
 	var self = this;
-	if ((lastsync.date !== undefined) && (lastsync.date.length > 0))
-		syncdate = lastsync.date;
+	if ((lastsync !== undefined) && (lastsync.length > 0))
+		syncdate = lastsync;
 	else
 		syncdate = '';
 		
@@ -313,7 +304,7 @@ Account.prototype.fetchSyncItemsSingly = function(lastsync, count, callback)
 		var syncitems = itemsSinceLastSync.sync_items;
 		
 		// TODO: fetch them in groups to minimize network overhead.
-		var pending = -1;
+		var pending = 0;
 		for (var i=0; i < syncitems.length; i++)
 		{
 			var item = syncitems[i];
@@ -324,12 +315,47 @@ Account.prototype.fetchSyncItemsSingly = function(lastsync, count, callback)
 			self.fetchItem(item, function(err, entry)
 			{
 				count++;
-				if (lastsync.date < item.time) lastsync.date = item.time;
-				pending-- || callback(lastsync, count, totalToFetch - syncitems.length);
+				if (lastsync < item.time) lastsync = item.time;
+				--pending || callback(lastsync, count, totalToFetch - syncitems.length);
 			});
 		}
 	});
 };
+
+Account.prototype.backupJournalEntriesSingly = function(callback)
+{
+	var self = this;
+	logger.info('Fetching new and updated journal entries.');
+	
+	self.readLastSync(function(lastsync)
+	{
+		var previousSyncDate = lastsync;
+
+		var recordResults = function(syncdata, newentries)
+		{
+			self.writeLastSync(syncdata, function()
+			{
+				logger.info("Local json archive complete.")
+				if (previousSyncDate.length > 0)
+					logger.info(newentries+' entries recorded since '+previousSyncDate);
+				else
+					logger.info(newentries+' entries recorded');
+				callback();
+			});
+		};
+		
+		var continuer = function(syncdata, count, remaining)
+		{
+			if (remaining <= 0)
+				recordResults(syncdata, count);
+			else
+				self.fetchSyncItemsSingly(syncdata, count, continuer);
+		};		
+		self.fetchSyncItemsSingly(lastsync, 0, continuer);
+	});
+};
+
+
 
 //------------------------------------------------------------------------------
 // sync items in batches
@@ -342,7 +368,7 @@ Account.prototype.getEventsSince = function(sinceDate, callback)
 		user: self.user,
 		ver: 1,
 		selecttype: 'syncitems',
-		lastsync: sinceDate.date,
+		lastsync: sinceDate,
 		lineendings: 'unix'
 	};
 	
@@ -394,13 +420,13 @@ Account.prototype.fetchBatch = function(lastsync, callback)
 	
 	self.getEventsSince(lastsync, function(entries)
 	{
-		var pending = entries.length - 1;
+		var pending = entries.length;
 		for (var i=0; i < entries.length; i++)
 		{
 			var entry = entries[i];
 
-			if ((lastsync.date < entry.time) || (lastsync.date === ''))
-				lastsync.date = entry.time;
+			if ((lastsync < entry.time) || (lastsync === ''))
+				lastsync = entry.time;
 		
 			var location = url.parse(entry.url);
 			var pieces = location.pathname.split('/');
@@ -410,34 +436,21 @@ Account.prototype.fetchBatch = function(lastsync, callback)
 			logger.info('backing up entry '+basename);
 			fs.writeFile(fname, JSON.stringify(entry, null, true), 'utf8', function(err)
 			{
-				pending-- || callback(err, entries, lastsync.date);
+				pending-- || callback(err, entries, lastsync);
 			});
 		}
-		pending-- || callback(null, entries, lastsync.date);
+		pending-- || callback(null, entries, lastsync);
 	});
 };
 
 Account.prototype.fetchSyncItems = function(lastsync, count, callback)
 {
 	var self = this;
-	self.getSyncItems(lastsync, function(itemsSinceLastSync)
+	self.fetchBatch(lastsync, function(err, entries, latest)
 	{
-		if ((itemsSinceLastSync === null) || (itemsSinceLastSync.sync_items.length == 0))
-		{
-			logger.info('nothing to update');
-			return callback(lastsync, count, 0);
-		}
-			
-		var newentries = 0;
-		var totalToFetch = itemsSinceLastSync.sync_total;
-		var syncitems = itemsSinceLastSync.sync_items;
-		
-		self.fetchBatch(lastsync, function(err, entries, latest)
-		{
-			count += entries.length;
-			lastsync.date = latest;
-			callback(lastsync, count, totalToFetch - entries.length);
-		});
+		count += entries.length;
+		lastsync = latest;
+		callback(lastsync, count);
 	});
 };
 
@@ -448,32 +461,65 @@ Account.prototype.backupJournalEntries = function(callback)
 	
 	self.readLastSync(function(lastsync)
 	{
-		var previousSyncDate = lastsync.date;
+		var previousSyncDate = lastsync;
 
 		var recordResults = function(syncdata, newentries)
 		{
-			console.log('entering recordResults()');
 			self.writeLastSync(syncdata, function()
 			{
 				logger.info("Local json archive complete.")
 				if (previousSyncDate.length > 0)
-					logger.info(newentries+' entries recorded since '+previousSyncDate);
+					logger.info(newentries+' entries recorded since '+previousSyncDate +'.');
 				else
-					logger.info(newentries+' entries recorded');
+					logger.info(newentries+' entries recorded.');
 				callback();
 			});
 		};
 		
-		var continuer = function(syncdata, count, remaining)
+		var lastrunsync = undefined;
+		var continuer = function(syncdata, count)
 		{
-			if (remaining <= 0)
+			if (syncdata === lastrunsync)
 				recordResults(syncdata, count);
 			else
+			{
+				lastrunsync = syncdata;
 				self.fetchSyncItems(syncdata, count, continuer);
+			}
 		};
 		self.fetchSyncItems(lastsync, 0, continuer);
 	});
 };
+
+//------------------------------------------------------------------------------
+
+Account.prototype.readLastSync = function(callback)
+{
+	var self = this;
+	var pname = path.join(self.metapath(), 'last_sync.json');
+	if (path.existsSync(pname))
+	{
+		fs.readFile(pname, 'utf8', function(err, data)
+		{
+			if (err) return callback(err);			
+			lastsync = JSON.parse(data);
+			return callback(lastsync);
+		});		
+	}
+	else
+		callback('');
+}
+
+Account.prototype.writeLastSync = function(lastsync, callback)
+{
+	var self = this;
+	var pname = path.join(self.metapath(), 'last_sync.json');
+	fs.writeFile(pname, JSON.stringify(lastsync), 'utf8', function(err)
+	{
+		if (err) return callback(err);			
+		return callback(null);
+	});		
+}
 
 //------------------------------------------------------------------------------
 
@@ -494,8 +540,7 @@ Account.prototype.fetchUserpicMetadata = function(callback)
 		// parse LJ's data structures:
 		// pickws == keywords
 		// pickwurls == urls
-		// Note that we're throwing away a lot of other data from the login
-		// response.
+		// Note that we're throwing away a lot of other data from the login response.
 		var piccount = parseInt(response['pickwurl_count']);
 		var userpics = []
 		for (var i = 1; i < piccount+1; i++)
@@ -527,7 +572,7 @@ Account.prototype.cachedUserpicData = function(callback)
 	{
 		if (err) return callback(err);			
 		self.userpics = JSON.parse(data);
-		logger.info('read userpics.json');
+		logger.info('Read cached data from userpics.json.');
 		return callback(null);
 	});
 };
@@ -555,13 +600,13 @@ function fetchImage(pichash, callback)
 Account.prototype.fetchUserPics = function(callback)
 {
 	var self = this;
-	logger.info('Recording userpic keyword info for:' + self.user)
+	logger.info('Recording userpic keyword info for ' + self.user)
 	
 	self.cachedUserpicData(function(err)
 	{
 		self.fetchUserpicMetadata(function(userpics)
 		{
-			logger.info('parsing userpic keywords from LJ');
+			logger.info('Retrieved userpic list from LJ.');
 			var imgdir = self.journalPath() + '/userpics';
 			
 			var pending = 0;
@@ -619,44 +664,24 @@ Account.prototype.backupUserPics = function(callback)
 
 //------------------------------------------------------------------------------
 
-Account.prototype.readLastSync = function(callback)
-{
-	var self = this;
-	var pname = path.join(self.metapath(), 'last_sync.json');
-	if (path.existsSync(pname))
-	{
-		fs.readFile(pname, 'utf8', function(err, data)
-		{
-			if (err) return callback(err);			
-			lastsync = JSON.parse(data);
-			return callback(lastsync);
-		});		
-	}
-	else
-		callback({ date: '', maxid: 0 });
-}
-
-Account.prototype.writeLastSync = function(lastsync, callback)
-{
-	var self = this;
-	var pname = path.join(self.metapath(), 'last_sync.json');
-	fs.writeFile(pname, JSON.stringify(lastsync), 'utf8', function(err)
-	{
-		if (err) return callback(err);			
-		return callback(null);
-	});		
-}
-
-//------------------------------------------------------------------------------
-
 var config = require('./config.yml').shift();
 if (config.source.port === undefined)
 	config.source.port = 80;
 
 var account = new Account(config.source);
+
+// set up logging
+var loggername = account.journal + '.ljsnarf.log'
+var logger = new (winston.Logger)({
+	transports: [
+		new (winston.transports.Console)({ colorize: true }),
+		new (winston.transports.File)({ filename: loggername, level: 'info', timestamp: true, colorize: false })
+	]
+});
+
 logger.info("---------- ljsnarf run started");
 logger.info("Version: " + VERSION);
-logger.info('source account: ' + account.journal + '@' + account.host);
+logger.info('Source account: ' + account.journal + '@' + account.host);
 
 var bpath = account.journalPath();
 if (!path.existsSync(bpath))
@@ -675,15 +700,18 @@ if (!path.existsSync(account.userpicspath())) fs.mkdirSync(account.userpicspath(
 
 var start = new Date();
 
-async.parallel(
-[
-	// function(cb) { account.makeSession(cb) },
-	function(cb) { account.backupUserPics(cb) },
-	function(cb) { account.backupJournalEntries(cb) }
-],
-function(err, results)
+function endRun()
 {
 	var elapsed = (new Date() - start)/1000;
 	logger.info(util.format('Done; %d seconds elapsed.', elapsed));
-});
+};
 
+var pending = 2;
+account.backupUserPics(function(err)
+{
+	--pending || endRun();
+});
+account.backupJournalEntries(function()
+{
+	--pending || endRun();
+});

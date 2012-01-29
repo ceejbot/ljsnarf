@@ -7,7 +7,6 @@
   "author"          : "C J Silverio <ceejceej@gmail.com>",
   "dependencies"    : {
   						"chainable-request": "0.1.x",
-                        "async": "0.1.x",
                         "js-yaml": "0.3.x",
                         "winston": "0.5.x"
                       },

@@ -4,4 +4,4 @@ log/**/*
 tmp/**/*
 config.yml
 backup
-ljmigrate.log
+**.log
