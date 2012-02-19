@@ -12,7 +12,7 @@ var
 require('js-yaml');
 
 var VERSION = '0.1.2';
-var USERAGENT = { 'User-Agent': 'ljsnarf ' + VERSION };
+var USERAGENT = { 'User-Agent': 'ljsnarf LJ backup ' + VERSION + '(https://github.com/ceejbot/ljsnarf; <ceejceej@gmail.com>; en-US)'};
 
 // lj's time format: 2004-08-11 13:38:00
 var ljTimeFormat = '%Y-%m-%d %H:%M:%S';
