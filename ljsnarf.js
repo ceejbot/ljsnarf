@@ -21,17 +21,14 @@ var flatpath = '/interface/flat';
 
 //------------------------------------------------------------------------------
 // array update/extend.
-if (Object.prototype.extend === undefined)
+function __extend(destination, source)
 {
-	Object.prototype.extend = function(source)
+	for (var property in source)
 	{
-		for (var property in source)
-		{
-			if (source.hasOwnProperty(property))
-				this[property] = source[property];
-		}
-		return this;
-	};
+		if (source.hasOwnProperty(property))
+			destination[property] = source[property];
+	}
+	return destination;
 }
 
 //------------------------------------------------------------------------------
@@ -130,7 +127,7 @@ Account.prototype.makeFlatAPICall = function(method, params, callback)
 	var self = this;
 	this.doChallengeFlat(function(challenge)
 	{
-		params.extend(challenge);
+		__extend(params, challenge);
 		params['mode'] = method;
 
 		self.requester().
@@ -378,10 +375,9 @@ Account.prototype.getEventsSince = function(sinceDate, callback)
 	self.makeFlatAPICall('getevents', params, function(data)
 	{
 		// Process the flat response into something usable.
-		// data['events_count']: count of events in this response; always 1
-		// the aspects are named 'events_N_aspect'
+		// data['events_count']: count of events in this response
+		// The aspects are named 'events_N_aspect'
 		var count = data['events_count'];
-		var propcount = data['prop_count'];
 		
 		var entries = {};
 		for (var i=1; i <= count; i++)
@@ -398,6 +394,7 @@ Account.prototype.getEventsSince = function(sinceDate, callback)
 			entries[entry.itemid] = entry;
 		}
 		
+		var propcount = data['prop_count'];
 		for (var i=1; i <= propcount; i++)
 		{
 			// prop_264_itemid, prop_264_name, prop_264_value
@@ -408,8 +405,6 @@ Account.prototype.getEventsSince = function(sinceDate, callback)
 		result = []
 		for (k in entries)
 		{
-			if (k === 'extend')
-				continue;			
 			result.push(entries[k]);
 		}
 		
