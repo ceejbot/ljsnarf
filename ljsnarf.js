@@ -266,6 +266,9 @@ Account.prototype.getOneEvent = function(itemid, callback)
 		entry.time = data['events_1_eventtime'];
 		entry.subject = data['events_1_subject'];
 		entry.body = unescape(data['events_1_event']);
+		entry.security = data['events_1_security'];
+		if (entry.security)
+			entry.allowmask = data['events_1_allowmask'];
 		
 		entry.properties = {};
 		var propcount = data.prop_count;
@@ -309,8 +312,8 @@ Account.prototype.fetchSyncItemsSingly = function(lastsync, count, callback)
 		var newentries = 0;
 		var totalToFetch = itemsSinceLastSync.sync_total;
 		var syncitems = itemsSinceLastSync.sync_items;
+		var mostRecentItem = lastsync;
 		
-		// TODO: fetch them in groups to minimize network overhead.
 		var pending = 0;
 		for (var i=0; i < syncitems.length; i++)
 		{
@@ -322,8 +325,8 @@ Account.prototype.fetchSyncItemsSingly = function(lastsync, count, callback)
 			self.fetchItem(item, function(err, entry)
 			{
 				count++;
-				if (lastsync < item.time) lastsync = item.time;
-				--pending || callback(lastsync, count, totalToFetch - syncitems.length);
+				if (mostRecentItem < item.time) mostRecentItem = item.time;
+				--pending || callback(mostRecentItem, count, totalToFetch - syncitems.length);
 			});
 		}
 	});
@@ -395,6 +398,9 @@ Account.prototype.getEventsSince = function(sinceDate, callback)
 			entry.url = data['events_'+i+'_url'];
 			entry.time = data['events_'+i+'_eventtime'];
 			entry.subject = data['events_'+i+'_subject'];
+			entry.security = data['events_'+i+'_security'];
+			if (entry.security)
+				entry.allowmask = data['events_'+i+'_allowmask'];
 			entry.body = unescape(data['events_'+i+'_event']);
 			entry.properties = {};
 			
@@ -451,11 +457,17 @@ Account.prototype.fetchBatch = function(lastsync, callback)
 Account.prototype.fetchSyncItems = function(lastsync, count, callback)
 {
 	var self = this;
-	self.fetchBatch(lastsync, function(err, entries, latest)
+	self.getSyncItems(lastsync, function(itemsSinceLastSync)
 	{
-		count += entries.length;
-		lastsync = latest;
-		callback(lastsync, count);
+		// console.log(itemsSinceLastSync);
+		if (itemsSinceLastSync['sync_total'] == 0)
+			return callback(lastsync, 0);
+	
+		self.fetchBatch(lastsync, function(err, entries, latest)
+		{
+			count += entries.length;
+			callback(latest, count);
+		});
 	});
 };
 
@@ -481,15 +493,15 @@ Account.prototype.backupJournalEntries = function(callback)
 			});
 		};
 		
-		var lastrunsync = undefined;
-		var continuer = function(syncdata, count)
+		var lastrunsync = lastsync;
+		var continuer = function(mostRecentItem, count)
 		{
-			if (syncdata === lastrunsync)
-				recordResults(syncdata, count);
+			if (mostRecentItem === lastrunsync)
+				recordResults(mostRecentItem, count);
 			else
 			{
-				lastrunsync = syncdata;
-				self.fetchSyncItems(syncdata, count, continuer);
+				lastrunsync = mostRecentItem;
+				self.fetchSyncItems(mostRecentItem, count, continuer);
 			}
 		};
 		self.fetchSyncItems(lastsync, 0, continuer);
@@ -689,8 +701,10 @@ logger.info("Version: " + VERSION);
 logger.info('Source account: ' + account.journal + '@' + account.host);
 
 var bpath = account.journalPath();
+var isFirstRun = false;
 if (!path.existsSync(bpath))
 {
+	isFirstRun = true;
 	var pieces = bpath.split('/');
 	var subpath = '';
 	for (var i = 0; i < pieces.length; i++)
@@ -709,10 +723,14 @@ account.makeSession(function(err)
 	account.backupUserPics(function(err)
 	{
 		logger.info('userpic backup complete.');
-		account.backupJournalEntries(function()
+		var func = account.backupJournalEntriesSingly;
+		if (isFirstRun)
+			func = account.backupJournalEntries;
+		
+		func.apply(account, [function()
 		{
 			var elapsed = (new Date() - start)/1000;
 			logger.info(util.format('Done; %d seconds elapsed.', elapsed));
-		});
+		}, ]);
 	});
 });
