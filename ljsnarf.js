@@ -33,7 +33,7 @@ function __extend(destination, source)
 
 //------------------------------------------------------------------------------
 
-var Account = function(options)
+var LJAccount = function(options)
 {
 	this.host = options.server.replace('http://', '');
 	this.port = options.port;
@@ -46,24 +46,24 @@ var Account = function(options)
 	this.groupmap = null;
 }
 
-Account.prototype.journalPath = function()
+LJAccount.prototype.journalPath = function()
 {
 	return path.join('.', 'backup', this.site, this.journal);
 };
-Account.prototype.metapath = function()
+LJAccount.prototype.metapath = function()
 {
 	return path.join(this.journalPath(), 'metadata');
 };
-Account.prototype.postspath = function()
+LJAccount.prototype.postspath = function()
 {
 	return path.join(this.journalPath(), 'posts');
 };
-Account.prototype.userpicspath = function()
+LJAccount.prototype.userpicspath = function()
 {
 	return path.join(this.journalPath(), 'userpics');
 };
 
-Account.prototype.requester = function()
+LJAccount.prototype.requester = function()
 {
 	var req = new requester({hostname: this.host, port: this.port}).
 			headers(USERAGENT);
@@ -80,7 +80,7 @@ Account.prototype.requester = function()
 //------------------------------------------------------------------------------
 // Flat API, challenge/response, and other LJ communication plumbing
 
-Account.prototype.handleFlatResponse = function(input)
+LJAccount.prototype.handleFlatResponse = function(input)
 {
 	// Read lines from input stream in name/value pairs.
 	// Return hash containing the results.
@@ -95,14 +95,14 @@ Account.prototype.handleFlatResponse = function(input)
 	return result;
 };
 
-Account.prototype.respondToChallenge = function(chal)
+LJAccount.prototype.respondToChallenge = function(chal)
 {
 	var passhash = crypto.createHash('md5').update(this.password).digest('hex');
 	var pseudohmac = crypto.createHash('md5').update(chal + passhash).digest('hex');
 	return pseudohmac;
 };
 
-Account.prototype.doChallengeFlat = function(callback)
+LJAccount.prototype.doChallengeFlat = function(callback)
 {
 	logger.debug('requesting fresh challenge');
 	var self = this;
@@ -129,7 +129,7 @@ Account.prototype.doChallengeFlat = function(callback)
 };
 
 // Params must be a hash.
-Account.prototype.makeFlatAPICall = function(method, params, callback)
+LJAccount.prototype.makeFlatAPICall = function(method, params, callback)
 {
 	logger.debug("making flat API call with mode: ", method);
 	var self = this;
@@ -173,7 +173,7 @@ Account.prototype.makeFlatAPICall = function(method, params, callback)
 
 //------------------------------------------------------------------------------
 
-Account.prototype.makeSession = function(callback)
+LJAccount.prototype.makeSession = function(callback)
 {
 	var self = this;
 	logger.info('Generating session using challenge/response');
@@ -191,13 +191,13 @@ Account.prototype.makeSession = function(callback)
 
 //------------------------------------------------------------------------------
 
-Account.prototype.metadataFileForRead = function(fname, callback)
+LJAccount.prototype.metadataFileForRead = function(fname, callback)
 {
 	var pname = path.join(self.metapath(), fname);
 	return fs.openSync(pname, 'r');
 };
 
-Account.prototype.metadataFileForWrite = function(fname, callback)
+LJAccount.prototype.metadataFileForWrite = function(fname, callback)
 {
 	var pname = path.join(self.metapath(), fname);
 	return fs.openSync(pname, 'w');
@@ -205,7 +205,7 @@ Account.prototype.metadataFileForWrite = function(fname, callback)
 
 //------------------------------------------------------------------------------
 
-Account.prototype.getSyncItems = function(lastsync, callback)
+LJAccount.prototype.getSyncItems = function(lastsync, callback)
 {
 	var self = this;
 	if ((lastsync !== undefined) && (lastsync.length > 0))
@@ -244,7 +244,7 @@ Account.prototype.getSyncItems = function(lastsync, callback)
 //------------------------------------------------------------------------------
 // sync items one at a time
 
-Account.prototype.getOneEvent = function(itemid, callback)
+LJAccount.prototype.getOneEvent = function(itemid, callback)
 {
 	var self = this;
 	itemid = itemid.replace(/^L-/, '');
@@ -279,7 +279,7 @@ Account.prototype.getOneEvent = function(itemid, callback)
 	});
 };
 
-Account.prototype.fetchItem = function(item, callback)
+LJAccount.prototype.fetchItem = function(item, callback)
 {
 	var self = this;
 
@@ -297,7 +297,7 @@ Account.prototype.fetchItem = function(item, callback)
 	});
 };
 
-Account.prototype.fetchSyncItemsSingly = function(lastsync, count, callback)
+LJAccount.prototype.fetchSyncItemsSingly = function(lastsync, count, callback)
 {
 	var self = this;
 	logger.info("fetching sync items one at a time, starting with " + JSON.stringify(lastsync));
@@ -332,7 +332,7 @@ Account.prototype.fetchSyncItemsSingly = function(lastsync, count, callback)
 	});
 };
 
-Account.prototype.backupJournalEntriesSingly = function(callback)
+LJAccount.prototype.backupJournalEntriesSingly = function(callback)
 {
 	var self = this;
 	logger.info('Fetching new and updated journal entries.');
@@ -365,12 +365,10 @@ Account.prototype.backupJournalEntriesSingly = function(callback)
 	});
 };
 
-
-
 //------------------------------------------------------------------------------
 // sync items in batches
 
-Account.prototype.getEventsSince = function(sinceDate, callback)
+LJAccount.prototype.getEventsSince = function(sinceDate, callback)
 {
 	var self = this;
 	var params = {
@@ -417,15 +415,13 @@ Account.prototype.getEventsSince = function(sinceDate, callback)
 		
 		result = []
 		for (k in entries)
-		{
 			result.push(entries[k]);
-		}
 		
 		callback(result);
 	});
 };
 
-Account.prototype.fetchBatch = function(lastsync, callback)
+LJAccount.prototype.fetchBatch = function(lastsync, callback)
 {
 	var self = this;
 	
@@ -454,7 +450,7 @@ Account.prototype.fetchBatch = function(lastsync, callback)
 	});
 };
 
-Account.prototype.fetchSyncItems = function(lastsync, count, callback)
+LJAccount.prototype.fetchSyncItems = function(lastsync, count, callback)
 {
 	var self = this;
 	self.getSyncItems(lastsync, function(itemsSinceLastSync)
@@ -471,7 +467,7 @@ Account.prototype.fetchSyncItems = function(lastsync, count, callback)
 	});
 };
 
-Account.prototype.backupJournalEntries = function(callback)
+LJAccount.prototype.backupJournalEntries = function(callback)
 {
 	var self = this;
 	logger.info('Fetching new and updated journal entries.');
@@ -510,7 +506,7 @@ Account.prototype.backupJournalEntries = function(callback)
 
 //------------------------------------------------------------------------------
 
-Account.prototype.readLastSync = function(callback)
+LJAccount.prototype.readLastSync = function(callback)
 {
 	var self = this;
 	var pname = path.join(self.metapath(), 'last_sync.json');
@@ -527,7 +523,7 @@ Account.prototype.readLastSync = function(callback)
 		callback('');
 }
 
-Account.prototype.writeLastSync = function(lastsync, callback)
+LJAccount.prototype.writeLastSync = function(lastsync, callback)
 {
 	var self = this;
 	var pname = path.join(self.metapath(), 'last_sync.json');
@@ -540,7 +536,7 @@ Account.prototype.writeLastSync = function(lastsync, callback)
 
 //------------------------------------------------------------------------------
 
-Account.prototype.fetchUserpicMetadata = function(callback)
+LJAccount.prototype.fetchUserpicMetadata = function(callback)
 {
 	var self = this;
 	var params = {
@@ -576,7 +572,7 @@ Account.prototype.fetchUserpicMetadata = function(callback)
 	});
 };
 
-Account.prototype.cachedUserpicData = function(callback)
+LJAccount.prototype.cachedUserpicData = function(callback)
 {
 	var self = this;
 	self.userpics = {};
@@ -614,7 +610,7 @@ function fetchImage(pichash, callback)
 	});
 }
 
-Account.prototype.fetchUserPics = function(callback)
+LJAccount.prototype.fetchUserPics = function(callback)
 {
 	var self = this;
 	logger.info('Recording userpic keyword info for ' + self.user)
@@ -665,7 +661,7 @@ Account.prototype.fetchUserPics = function(callback)
 	});
 };
 
-Account.prototype.backupUserPics = function(callback)
+LJAccount.prototype.backupUserPics = function(callback)
 {
 	var self = this;
 	self.fetchUserPics(function()
@@ -685,7 +681,7 @@ var config = require('./config.yml').shift();
 if (config.source.port === undefined)
 	config.source.port = 80;
 
-var account = new Account(config.source);
+var account = new LJAccount(config.source);
 
 // set up logging
 var loggername = account.journal + '.ljsnarf.log'
