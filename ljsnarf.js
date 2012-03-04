@@ -11,7 +11,7 @@ var
 
 require('js-yaml');
 
-var VERSION = '0.1.2';
+var VERSION = '0.1.3';
 var USERAGENT = { 'User-Agent': 'ljsnarf LJ backup ' + VERSION + '(https://github.com/ceejbot/ljsnarf; <ceejceej@gmail.com>; en-US)'};
 
 // lj's time format: 2004-08-11 13:38:00
@@ -99,6 +99,7 @@ Account.prototype.respondToChallenge = function(chal)
 
 Account.prototype.doChallengeFlat = function(callback)
 {
+	logger.debug('requesting fresh challenge');
 	var self = this;
 	self.requester().
 		content_type('application/x-www-form-urlencoded').
@@ -114,7 +115,9 @@ Account.prototype.doChallengeFlat = function(callback)
 			'auth_method': 'challenge',
 			'auth_challenge': data['challenge'],
 			'auth_response': self.respondToChallenge(data['challenge']),
-			'user': self.user
+			'expires': new Date(data['expire_time'] * 1000),
+			'user': self.user,
+			'username': self.user,
 		};
 		callback(result);
 	});
@@ -123,7 +126,7 @@ Account.prototype.doChallengeFlat = function(callback)
 // Params must be a hash.
 Account.prototype.makeFlatAPICall = function(method, params, callback)
 {
-	// logger.debug("making flat API call with mode: ", method);
+	logger.debug("making flat API call with mode: ", method);
 	var self = this;
 	this.doChallengeFlat(function(challenge)
 	{
@@ -699,19 +702,12 @@ if (!path.existsSync(account.metapath())) fs.mkdirSync(account.metapath());
 if (!path.existsSync(account.userpicspath())) fs.mkdirSync(account.userpicspath());
 
 var start = new Date();
-
-function endRun()
-{
-	var elapsed = (new Date() - start)/1000;
-	logger.info(util.format('Done; %d seconds elapsed.', elapsed));
-};
-
-var pending = 2;
 account.backupUserPics(function(err)
 {
-	--pending || endRun();
-});
-account.backupJournalEntries(function()
-{
-	--pending || endRun();
+	logger.info('userpic backup complete.');
+	account.backupJournalEntries(function()
+	{
+		var elapsed = (new Date() - start)/1000;
+		logger.info(util.format('Done; %d seconds elapsed.', elapsed));
+	});
 });
