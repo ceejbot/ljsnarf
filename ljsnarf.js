@@ -265,7 +265,7 @@ Account.prototype.getOneEvent = function(itemid, callback)
 		entry.url = data['events_1_url'];
 		entry.time = data['events_1_eventtime'];
 		entry.subject = data['events_1_subject'];
-		entry.body = unescape(data['events_1_event']);
+		entry.body = decodeURIComponent(data['events_1_event']);
 		entry.security = data['events_1_security'];
 		if (entry.security)
 			entry.allowmask = data['events_1_allowmask'];
@@ -401,7 +401,7 @@ Account.prototype.getEventsSince = function(sinceDate, callback)
 			entry.security = data['events_'+i+'_security'];
 			if (entry.security)
 				entry.allowmask = data['events_'+i+'_allowmask'];
-			entry.body = unescape(data['events_'+i+'_event']);
+			entry.body = decodeURIComponent(data['events_'+i+'_event']);
 			entry.properties = {};
 			
 			entries[entry.itemid] = entry;
