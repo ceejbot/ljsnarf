@@ -65,8 +65,16 @@ Account.prototype.userpicspath = function()
 
 Account.prototype.requester = function()
 {
-	return new requester({hostname: this.host, port: this.port}).
+	var req = new requester({hostname: this.host, port: this.port}).
 			headers(USERAGENT);
+	if (this.ljsession)
+	{
+		req.headers({
+			'X-LJ-Auth': 'cookie',
+			'Cookie': 'ljsession='+this.ljsession
+		});
+	}
+	return req;
 }
 
 //------------------------------------------------------------------------------
@@ -125,9 +133,19 @@ Account.prototype.makeFlatAPICall = function(method, params, callback)
 {
 	logger.debug("making flat API call with mode: ", method);
 	var self = this;
-	this.doChallengeFlat(function(challenge)
+	
+	var doCall = function(challenge)
 	{
-		__extend(params, challenge);
+		if (challenge)
+			__extend(params, challenge);
+		else
+		{
+			__extend(params, { 
+				'user': self.user,
+				'username': self.user,
+				'auth_method': 'cookie',
+			});
+		}
 		params['mode'] = method;
 
 		self.requester().
@@ -137,9 +155,20 @@ Account.prototype.makeFlatAPICall = function(method, params, callback)
 			on('reply', function(response, body)
 		{
 			data = self.handleFlatResponse(body);
-			callback(data);
+			var err = undefined;
+			if (data['success'] == 'FAIL')
+			{
+				err = data['errmsg'];
+				logger.error(err);
+			}
+			callback(err, data);
 		});
-	});
+	}
+	
+	if (self.ljsession === undefined)
+		this.doChallengeFlat(doCall);
+	else
+		doCall();
 };
 
 //------------------------------------------------------------------------------
@@ -149,37 +178,15 @@ Account.prototype.makeSession = function(callback)
 	var self = this;
 	logger.info('Generating session using challenge/response');
 	
-	self.requester().
-		content_type('application/x-www-form-urlencoded').
-		body({'mode': 'getchallenge'}).
-		post('/interface/flat').
-		on('reply', function(response, body)
+	var params = {
+		expiration: 'short',
+		ipfixed: 'true'
+	};
+	self.makeFlatAPICall('sessiongenerate', params, function(err, data)
 	{
-		data = self.handleFlatResponse(body);
-		if (data.errmsg !== undefined)
-			return callback(data.errmsg);
-		
-		challenge = data['challenge'];
-		challengeResponse = self.respondToChallenge(challenge);
-		
-		var sessiondata = {
-			mode : 'sessiongenerate',
-			user : self.user,
-			auth_method: 'challenge',
-			auth_challenge: challenge,
-			auth_response: challengeResponse
-		};
-		self.requester().
-			content_type('application/x-www-form-urlencoded').
-			body(sessiondata).
-			post('/interface/flat').
-			on('reply', function(response, body)
-		{
-			data = self.handleFlatResponse(body);
-			self.ljsession = data['ljsession'];
-			callback(null);
-		});
-	})	
+		self.ljsession = data['ljsession'];
+		callback(err);
+	});
 };
 
 //------------------------------------------------------------------------------
@@ -213,7 +220,7 @@ Account.prototype.getSyncItems = function(lastsync, callback)
 		user : self.user,
 	};
 
-	self.makeFlatAPICall('syncitems', params, function(data)
+	self.makeFlatAPICall('syncitems', params, function(err, data)
 	{
 		// Massage the data into a more useful structure.
 		var results = {};
@@ -250,7 +257,7 @@ Account.prototype.getOneEvent = function(itemid, callback)
 		selecttype: "one",
 		itemid: itemid,
 	};
-	self.makeFlatAPICall('getevents', params, function(data)
+	self.makeFlatAPICall('getevents', params, function(err, data)
 	{
 		var entry = {};
 		entry.itemid = data['events_1_itemid'];
@@ -372,7 +379,7 @@ Account.prototype.getEventsSince = function(sinceDate, callback)
 		lineendings: 'unix'
 	};
 	
-	self.makeFlatAPICall('getevents', params, function(data)
+	self.makeFlatAPICall('getevents', params, function(err, data)
 	{
 		// Process the flat response into something usable.
 		// data['events_count']: count of events in this response
@@ -533,7 +540,7 @@ Account.prototype.fetchUserpicMetadata = function(callback)
 	if (self.journal != self.user)
 		params['usejournal'] = self.journal;
 
-	self.makeFlatAPICall('login', params, function(response)
+	self.makeFlatAPICall('login', params, function(err, response)
 	{
 		// parse LJ's data structures:
 		// pickws == keywords
@@ -697,12 +704,15 @@ if (!path.existsSync(account.metapath())) fs.mkdirSync(account.metapath());
 if (!path.existsSync(account.userpicspath())) fs.mkdirSync(account.userpicspath());
 
 var start = new Date();
-account.backupUserPics(function(err)
+account.makeSession(function(err)
 {
-	logger.info('userpic backup complete.');
-	account.backupJournalEntries(function()
+	account.backupUserPics(function(err)
 	{
-		var elapsed = (new Date() - start)/1000;
-		logger.info(util.format('Done; %d seconds elapsed.', elapsed));
+		logger.info('userpic backup complete.');
+		account.backupJournalEntries(function()
+		{
+			var elapsed = (new Date() - start)/1000;
+			logger.info(util.format('Done; %d seconds elapsed.', elapsed));
+		});
 	});
 });
