@@ -166,7 +166,7 @@ LJAccount.prototype.makeFlatAPICall = function(method, params, callback)
 	}
 	
 	if (self.ljsession === undefined)
-		this.doChallengeFlat(doCall);
+		self.doChallengeFlat(doCall);
 	else
 		doCall();
 };
@@ -187,20 +187,6 @@ LJAccount.prototype.makeSession = function(callback)
 		self.ljsession = data['ljsession'];
 		callback(err);
 	});
-};
-
-//------------------------------------------------------------------------------
-
-LJAccount.prototype.metadataFileForRead = function(fname, callback)
-{
-	var pname = path.join(self.metapath(), fname);
-	return fs.openSync(pname, 'r');
-};
-
-LJAccount.prototype.metadataFileForWrite = function(fname, callback)
-{
-	var pname = path.join(self.metapath(), fname);
-	return fs.openSync(pname, 'w');
 };
 
 //------------------------------------------------------------------------------
@@ -244,6 +230,19 @@ LJAccount.prototype.getSyncItems = function(lastsync, callback)
 //------------------------------------------------------------------------------
 // sync items one at a time
 
+LJAccount.prototype.archiveEntry = function(entry, callback)
+{
+	var location = url.parse(entry.url);
+	var pieces = location.pathname.split('/');
+	var basename = pieces[pieces.length - 1].replace('.html', '.json');
+	var fname = path.join(this.postspath(), basename);
+	fs.writeFile(fname, JSON.stringify(entry, null, '\t'), 'utf8', function(err)
+	{
+		logger.info('backed up entry '+basename);
+		callback(err, entry);
+	});		
+}
+
 LJAccount.prototype.getOneEvent = function(itemid, callback)
 {
 	var self = this;
@@ -282,18 +281,9 @@ LJAccount.prototype.getOneEvent = function(itemid, callback)
 LJAccount.prototype.fetchItem = function(item, callback)
 {
 	var self = this;
-
 	self.getOneEvent(item.id, function(entry)
 	{
-		var location = url.parse(entry.url);
-		var pieces = location.pathname.split('/');
-		var basename = pieces[pieces.length - 1].replace('.html', '.json');
-		var fname = path.join(self.postspath(), basename);
-		fs.writeFile(fname, JSON.stringify(entry, null, true), 'utf8', function(err)
-		{
-			logger.info('backed up entry '+basename);
-			callback(err, entry);
-		});		
+		self.archiveEntry(entry, callback);
 	});
 };
 
@@ -382,9 +372,8 @@ LJAccount.prototype.getEventsSince = function(sinceDate, callback)
 	
 	self.makeFlatAPICall('getevents', params, function(err, data)
 	{
-		// Process the flat response into something usable.
 		// data['events_count']: count of events in this response
-		// The aspects are named 'events_N_aspect'
+		// The item aspects are named 'events_N_aspect'
 		var count = data['events_count'];
 		
 		var entries = {};
@@ -435,18 +424,11 @@ LJAccount.prototype.fetchBatch = function(lastsync, callback)
 			if ((lastsync < entry.time) || (lastsync === ''))
 				lastsync = entry.time;
 		
-			var location = url.parse(entry.url);
-			var pieces = location.pathname.split('/');
-			var basename = pieces[pieces.length - 1].replace('.html', '.json');
-			var fname = path.join(self.postspath(), basename);
-
-			logger.info('backing up entry '+basename);
-			fs.writeFile(fname, JSON.stringify(entry, null, true), 'utf8', function(err)
+			self.archiveEntry(entry, function(err, entry)
 			{
-				pending-- || callback(err, entries, lastsync);
+				--pending || callback(err, entries, lastsync);
 			});
 		}
-		pending-- || callback(null, entries, lastsync);
 	});
 };
 
@@ -455,7 +437,6 @@ LJAccount.prototype.fetchSyncItems = function(lastsync, count, callback)
 	var self = this;
 	self.getSyncItems(lastsync, function(itemsSinceLastSync)
 	{
-		// console.log(itemsSinceLastSync);
 		if (itemsSinceLastSync['sync_total'] == 0)
 			return callback(lastsync, 0);
 	
@@ -667,7 +648,7 @@ LJAccount.prototype.backupUserPics = function(callback)
 	self.fetchUserPics(function()
 	{
 		var pname = path.join(self.metapath(), 'userpics.json');
-		fs.writeFile(pname, JSON.stringify(self.userpics), 'utf8', function(err)
+		fs.writeFile(pname, JSON.stringify(self.userpics, null, '\t'), 'utf8', function(err)
 		{
 			if (err) return callback(err);			
 			return callback(null);
