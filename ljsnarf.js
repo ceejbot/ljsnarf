@@ -234,9 +234,15 @@ LJAccount.prototype.getSyncItems = function(lastsync, callback)
 
 LJAccount.prototype.archiveEntry = function(entry, callback)
 {
+	var basename, pieces;
 	var location = url.parse(entry.url);
-	var pieces = location.pathname.split('/');
-	var basename = pieces[pieces.length - 1].replace('.html', '.json');
+
+	if (entry.url.indexOf('#') > -1)
+		pieces = location.href.split('/');		
+	else
+		pieces = location.pathname.split('/');
+	
+	basename = pieces[pieces.length - 1].replace('.html', '.json');
 	var fname = path.join(this.postspath(), basename);
 	fs.writeFile(fname, JSON.stringify(entry, null, '\t'), 'utf8', function(err)
 	{

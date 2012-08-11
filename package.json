@@ -6,7 +6,7 @@
   "keywords"        : ["livejournal", "lj", "api" ],
   "author"          : "C J Silverio <ceejceej@gmail.com>",
   "dependencies"    : {
-  						"chainable-request": "0.1.x",
+  						"chainable-request": "git://github.com/ceejbot/chainable-request.git",
                         "js-yaml": "0.3.x",
                         "winston": "0.5.x"
                       },
